@@ -193,6 +193,7 @@ bool BatteryMonitor::update(void) {
     props.batteryHealth = BATTERY_HEALTH_UNKNOWN;
     props.dockBatteryStatus = BATTERY_STATUS_UNKNOWN;
     props.dockBatteryHealth = BATTERY_HEALTH_UNKNOWN;
+    props.maxChargingCurrent = 0;
 
     if (!mHealthdConfig->batteryPresentPath.isEmpty())
         props.batteryPresent = getBooleanField(mHealthdConfig->batteryPresentPath);
@@ -300,11 +301,18 @@ bool BatteryMonitor::update(void) {
                         }
                     }
                 }
-                break;
-            } //switch
-        } //while
-        closedir(dir);
-    }//else
+                path.clear();
+                path.appendFormat("%s/%s/current_max", POWER_SUPPLY_SYSFS_PATH,
+                                  mChargerNames[i].string());
+                if (access(path.string(), R_OK) == 0) {
+                    int maxChargingCurrent = getIntField(path);
+                    if (props.maxChargingCurrent < maxChargingCurrent) {
+                        props.maxChargingCurrent = maxChargingCurrent;
+                    }
+                }
+            }
+        }
+    }
 
     logthis = !healthd_board_battery_update(&props);
 
@@ -331,27 +339,6 @@ bool BatteryMonitor::update(void) {
         } else {
             snprintf(dmesgline, sizeof(dmesgline),
                  "battery none");
-        }
-
-        if (props.dockBatteryPresent) {
-            snprintf(dmesglinedock, sizeof(dmesglinedock),
-                 "dock-battery [l=%d v=%d t=%s%d.%d h=%d st=%d]",
-                 props.dockBatteryLevel, props.dockBatteryVoltage,
-                 props.dockBatteryTemperature < 0 ? "-" : "",
-                 abs(props.dockBatteryTemperature / 10),
-                 abs(props.dockBatteryTemperature % 10), props.dockBatteryHealth,
-                 props.dockBatteryStatus);
-
-            if (!mHealthdConfig->dockBatteryCurrentNowPath.isEmpty()) {
-                int c = getIntField(mHealthdConfig->dockBatteryCurrentNowPath);
-                char b[20];
-
-                snprintf(b, sizeof(b), " c=%d", c / 1000);
-                strlcat(dmesglinedock, b, sizeof(dmesglinedock));
-            }
-        } else {
-            snprintf(dmesglinedock, sizeof(dmesglinedock),
-                 "dock-battery none");
         }
 
         size_t len = strlen(dmesgline);
@@ -516,9 +503,9 @@ void BatteryMonitor::dumpState(int fd) {
     int v;
     char vs[128];
 
-    snprintf(vs, sizeof(vs), "ac: %d usb: %d wireless: %d dock-ac: %d\n",
+    snprintf(vs, sizeof(vs), "ac: %d usb: %d wireless: %d current_max: %d\n",
              props.chargerAcOnline, props.chargerUsbOnline,
-             props.chargerWirelessOnline, props.chargerDockAcOnline);
+             props.chargerWirelessOnline, props.maxChargingCurrent);
     write(fd, vs, strlen(vs));
     snprintf(vs, sizeof(vs), "status: %d health: %d present: %d\n",
              props.batteryStatus, props.batteryHealth, props.batteryPresent);
